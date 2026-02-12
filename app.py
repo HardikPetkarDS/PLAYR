@@ -18,7 +18,7 @@ st.markdown(
     """
     <h1 style='text-align:center;'>🏏 IPL Advanced Player Analytics System</h1>
     <p style='text-align:center; font-size:18px;'>
-    Player Efficiency • Comparison • Overs Analysis • Best XI • Consistency
+    Player Selection • Player Comparison • Overs Analysis • Best XI • Consistency
     </p>
     """,
     unsafe_allow_html=True
@@ -38,7 +38,7 @@ def load_data():
 matches_df, deliveries_df = load_data()
 
 # ==================================================
-# NORMALIZE SCHEMA (CRITICAL)
+# NORMALIZE SCHEMA (NO ERROR GUARANTEE)
 # ==================================================
 matches_df.columns = matches_df.columns.str.lower()
 deliveries_df.columns = deliveries_df.columns.str.lower()
@@ -57,7 +57,7 @@ if "is_wicket" not in deliveries_df.columns:
         deliveries_df["is_wicket"] = 0
 
 # ==================================================
-# SIDEBAR FILTER
+# SIDEBAR FILTERS (IMPORTANT)
 # ==================================================
 st.sidebar.header("🎯 Filters")
 
@@ -76,6 +76,19 @@ season_data = deliveries_df[
 ]
 
 players = sorted(season_data["batsman"].dropna().unique())
+
+# PLAYER SELECTION 🔥
+selected_player = st.sidebar.selectbox(
+    "Select Player (Single Analysis)",
+    ["All Players"] + players
+)
+
+# PLAYER COMPARISON 🔥
+st.sidebar.markdown("---")
+st.sidebar.subheader("🆚 Player Comparison")
+
+player1 = st.sidebar.selectbox("Player 1", players)
+player2 = st.sidebar.selectbox("Player 2", players, index=1)
 
 # ==================================================
 # CORE PLAYER STATS
@@ -103,14 +116,13 @@ player_perf = batting_df.merge(
 ).fillna(0)
 
 # ==================================================
-# PLAYER CONSISTENCY INDEX ⭐
-# Consistency = Avg Runs per Match / Std Dev
+# CONSISTENCY INDEX
 # ==================================================
-runs_per_match = season_data.groupby(
+runs_match = season_data.groupby(
     ["batsman", "match_id"]
 )["batsman_runs"].sum().reset_index()
 
-consistency = runs_per_match.groupby("batsman")["batsman_runs"].agg(
+consistency = runs_match.groupby("batsman")["batsman_runs"].agg(
     avg_runs="mean",
     std_runs="std"
 ).reset_index()
@@ -126,7 +138,7 @@ player_perf = player_perf.merge(
 )
 
 # ==================================================
-# REALISTIC EFFICIENCY SCORE
+# EFFICIENCY SCORE
 # ==================================================
 player_perf["efficiency_score"] = (
     player_perf["total_runs"] * 0.40 +
@@ -136,139 +148,149 @@ player_perf["efficiency_score"] = (
 )
 
 # ==================================================
-# POWERPLAY vs DEATH OVERS ⚡
-# Powerplay: overs 1–6
-# Death: overs 16–20
+# POWERPLAY vs DEATH OVERS
 # ==================================================
-powerplay = season_data[season_data["over"] <= 6]
+pp = season_data[season_data["over"] <= 6]
 death = season_data[season_data["over"] >= 16]
 
-pp_runs = powerplay.groupby("batsman")["batsman_runs"].sum().reset_index(name="pp_runs")
+pp_runs = pp.groupby("batsman")["batsman_runs"].sum().reset_index(name="powerplay_runs")
 death_runs = death.groupby("batsman")["batsman_runs"].sum().reset_index(name="death_runs")
 
 overs_df = pp_runs.merge(death_runs, on="batsman", how="outer").fillna(0)
 
 # ==================================================
-# BEST XI RECOMMENDATION 🏆
-# Top 6 Batsmen + Top 5 Bowlers
+# BEST XI
 # ==================================================
-top_batsmen = player_perf.sort_values(
+best_batsmen = player_perf.sort_values(
     ["total_runs", "strike_rate"], ascending=False
 ).head(6)
 
-top_bowlers = bowling_df.sort_values("wickets", ascending=False).head(5)
+best_bowlers = bowling_df.sort_values("wickets", ascending=False).head(5)
 
 # ==================================================
-# KPI METRICS
+# PLAYER FILTER (SINGLE PLAYER VIEW)
 # ==================================================
-st.subheader("📌 Season Summary")
+display_df = player_perf.copy()
+if selected_player != "All Players":
+    display_df = display_df[display_df["batsman"] == selected_player]
+
+# ==================================================
+# KPIs
+# ==================================================
+st.subheader("📌 Key Performance Indicators")
 
 c1, c2, c3, c4 = st.columns(4)
-c1.metric("🏏 Total Runs", int(player_perf["total_runs"].sum()))
-c2.metric("⚡ Avg Strike Rate", round(player_perf["strike_rate"].mean(), 2))
-c3.metric("🎯 Total Wickets", int(player_perf["wickets"].sum()))
-c4.metric("🔥 Avg Efficiency", round(player_perf["efficiency_score"].mean(), 2))
+c1.metric("🏏 Total Runs", int(display_df["total_runs"].sum()))
+c2.metric("⚡ Avg Strike Rate", round(display_df["strike_rate"].mean(), 2))
+c3.metric("🎯 Total Wickets", int(display_df["wickets"].sum()))
+c4.metric("🔥 Avg Efficiency", round(display_df["efficiency_score"].mean(), 2))
 
 st.divider()
 
 # ==================================================
 # TABS
 # ==================================================
-tab1, tab2, tab3, tab4 = st.tabs(
+tab1, tab2, tab3, tab4, tab5 = st.tabs(
     [
+        "📊 Overview",
+        "🆚 Player vs Player",
         "⚡ Powerplay vs Death",
         "🏆 Best XI",
-        "📈 Consistency Index",
-        "📊 Overall Ranking"
+        "📈 Consistency"
     ]
 )
 
 # ==================================================
-# TAB 1 – POWERPLAY vs DEATH
+# TAB 1 – OVERVIEW
 # ==================================================
 with tab1:
-    st.subheader("Powerplay vs Death Overs Impact")
+    st.subheader("Top Players")
 
     st.dataframe(
-        overs_df.sort_values("pp_runs", ascending=False).head(10),
+        display_df.sort_values("efficiency_score", ascending=False).head(10),
         use_container_width=True
     )
 
-    st.markdown("✔ Powerplay aggression and death-over finishing define T20 matches.")
-
 # ==================================================
-# TAB 2 – BEST XI
+# TAB 2 – PLAYER vs PLAYER
 # ==================================================
 with tab2:
-    st.subheader("🏆 Recommended Best XI (Data-driven)")
+    st.subheader("🆚 Player Comparison")
+
+    p1 = player_perf[player_perf["batsman"] == player1].iloc[0]
+    p2 = player_perf[player_perf["batsman"] == player2].iloc[0]
+
+    compare_df = pd.DataFrame({
+        "Metric": ["Runs", "Strike Rate", "Wickets", "Consistency", "Efficiency"],
+        player1: [
+            p1["total_runs"], round(p1["strike_rate"], 2),
+            int(p1["wickets"]), round(p1["consistency_index"], 2),
+            round(p1["efficiency_score"], 2)
+        ],
+        player2: [
+            p2["total_runs"], round(p2["strike_rate"], 2),
+            int(p2["wickets"]), round(p2["consistency_index"], 2),
+            round(p2["efficiency_score"], 2)
+        ]
+    })
+
+    st.dataframe(compare_df, use_container_width=True)
+
+# ==================================================
+# TAB 3 – POWERPLAY vs DEATH
+# ==================================================
+with tab3:
+    st.subheader("Powerplay vs Death Overs Impact")
+
+    st.dataframe(
+        overs_df.sort_values("powerplay_runs", ascending=False).head(10),
+        use_container_width=True
+    )
+
+# ==================================================
+# TAB 4 – BEST XI
+# ==================================================
+with tab4:
+    st.subheader("🏆 Data-Driven Best XI")
 
     col1, col2 = st.columns(2)
 
     with col1:
         st.markdown("### 🏏 Top 6 Batsmen")
-        st.dataframe(
-            top_batsmen[["batsman", "total_runs", "strike_rate"]],
-            use_container_width=True
-        )
+        st.dataframe(best_batsmen[["batsman", "total_runs", "strike_rate"]])
 
     with col2:
         st.markdown("### 🎯 Top 5 Bowlers")
-        st.dataframe(
-            top_bowlers,
-            use_container_width=True
-        )
+        st.dataframe(best_bowlers)
 
 # ==================================================
-# TAB 3 – CONSISTENCY
+# TAB 5 – CONSISTENCY
 # ==================================================
-with tab3:
+with tab5:
     st.subheader("Player Consistency Index")
 
     st.dataframe(
-        player_perf.sort_values(
-            "consistency_index", ascending=False
-        ).head(10)[["batsman", "consistency_index"]],
+        player_perf.sort_values("consistency_index", ascending=False)
+        .head(10)[["batsman", "consistency_index"]],
         use_container_width=True
     )
-
-    st.markdown("✔ Higher consistency index = reliable performer across matches.")
-
-# ==================================================
-# TAB 4 – OVERALL RANKING
-# ==================================================
-with tab4:
-    st.subheader("Top 10 Players Overall")
-
-    top10 = player_perf.sort_values(
-        "efficiency_score", ascending=False
-    ).head(10)
-
-    st.dataframe(
-        top10[
-            ["batsman", "total_runs", "strike_rate", "wickets",
-             "consistency_index", "efficiency_score"]
-        ],
-        use_container_width=True
-    )
-
-    st.bar_chart(top10.set_index("batsman")["efficiency_score"])
 
 # ==================================================
 # FINAL INSIGHTS
 # ==================================================
 st.divider()
-st.subheader("🧠 Final Cricket Insights")
+st.subheader("🧠 Final Insights")
 
 st.markdown("""
-- Powerplay specialists give early momentum.
-- Death-over hitters decide match outcomes.
-- Consistent players are more valuable than one-season wonders.
-- Best XI selection should be data-driven, not reputation-based.
+- Player selection helps deep-dive individual performance.
+- Player comparison supports data-driven team selection.
+- Powerplay & death overs decide T20 outcomes.
+- Consistency is more valuable than one-time big scores.
 """)
 
 # ==================================================
 # FOOTER
 # ==================================================
 st.caption(
-    "🏏 IPL Advanced Player Analytics | Streamlit | Sports Analytics | Big Data Project"
+    "🏏 IPL Advanced Player Analytics | Streamlit | Big Data & Sports Analytics"
 )
