@@ -3,10 +3,10 @@ import pandas as pd
 import numpy as np
 
 # --------------------------------------------------
-# PAGE CONFIG
+# PAGE CONFIGURATION
 # --------------------------------------------------
 st.set_page_config(
-    page_title="IPL Player Performance Analytics",
+    page_title="IPL Player Performance Analysis",
     page_icon="🏏",
     layout="wide"
 )
@@ -16,8 +16,8 @@ st.set_page_config(
 # --------------------------------------------------
 st.markdown(
     """
-    <h1 style='text-align: center;'>🏏 IPL Player Performance Analysis System</h1>
-    <p style='text-align: center; font-size:18px;'>
+    <h1 style='text-align:center;'>🏏 IPL Player Performance Analysis System</h1>
+    <p style='text-align:center; font-size:18px;'>
     Data-Driven Evaluation of Player Efficiency using Ball-by-Ball IPL Data
     </p>
     """,
@@ -38,50 +38,75 @@ def load_data():
 matches_df, deliveries_df = load_data()
 
 # --------------------------------------------------
+# STANDARDIZE COLUMN NAMES (NO ERROR GUARANTEE)
+# --------------------------------------------------
+deliveries_df.columns = deliveries_df.columns.str.lower()
+
+# Ensure correct column names exist
+if "batter" in deliveries_df.columns:
+    deliveries_df.rename(columns={"batter": "batsman"}, inplace=True)
+
+# --------------------------------------------------
 # SIDEBAR FILTERS
 # --------------------------------------------------
 st.sidebar.header("🎯 Filters")
 
-seasons = sorted(matches_df["season"].unique())
+season_col = "season" if "season" in matches_df.columns else "Season"
+match_id_col = "id" if "id" in matches_df.columns else "match_id"
+
+seasons = sorted(matches_df[season_col].unique())
 selected_season = st.sidebar.selectbox("Select Season", seasons)
 
-match_ids = matches_df[matches_df["season"] == selected_season]["id"]
-season_data = deliveries_df[deliveries_df["match_id"].isin(match_ids)]
+season_match_ids = matches_df[
+    matches_df[season_col] == selected_season
+][match_id_col]
 
-players = sorted(season_data["batter"].unique())
-selected_player = st.sidebar.selectbox("Select Player", ["All Players"] + players)
+season_data = deliveries_df[
+    deliveries_df["match_id"].isin(season_match_ids)
+]
 
-st.sidebar.markdown("---")
-st.sidebar.markdown("📊 **Analysis Type**")
-analysis_type = st.sidebar.radio(
-    "", ["Overview", "Batting", "Bowling", "Efficiency"]
+players = sorted(season_data["batsman"].dropna().unique())
+selected_player = st.sidebar.selectbox(
+    "Select Player",
+    ["All Players"] + players
 )
 
 # --------------------------------------------------
-# CORE CALCULATIONS
+# BATTING ANALYSIS
 # --------------------------------------------------
-batting = season_data.groupby("batter").agg(
+batting_df = season_data.groupby("batsman").agg(
     total_runs=("batsman_runs", "sum"),
     balls_faced=("ball", "count"),
     fours=("batsman_runs", lambda x: (x == 4).sum()),
     sixes=("batsman_runs", lambda x: (x == 6).sum())
 ).reset_index()
 
-batting["strike_rate"] = (batting["total_runs"] / batting["balls_faced"]) * 100
+batting_df["strike_rate"] = (
+    batting_df["total_runs"] / batting_df["balls_faced"]
+) * 100
 
-bowling = season_data[season_data["is_wicket"] == 1] \
-    .groupby("bowler") \
-    .size() \
-    .reset_index(name="wickets")
+# --------------------------------------------------
+# BOWLING ANALYSIS
+# --------------------------------------------------
+bowling_df = season_data[
+    season_data["is_wicket"] == 1
+].groupby("bowler").size().reset_index(name="wickets")
 
-player_perf = batting.merge(
-    bowling,
-    left_on="batter",
+# --------------------------------------------------
+# MERGE PLAYER PERFORMANCE
+# --------------------------------------------------
+player_perf = batting_df.merge(
+    bowling_df,
+    left_on="batsman",
     right_on="bowler",
     how="left"
-).fillna(0)
+)
 
-# Realistic Efficiency Formula
+player_perf["wickets"] = player_perf["wickets"].fillna(0)
+
+# --------------------------------------------------
+# REALISTIC EFFICIENCY SCORE
+# --------------------------------------------------
 player_perf["efficiency_score"] = (
     player_perf["total_runs"] * 0.45 +
     player_perf["strike_rate"] * 0.35 +
@@ -89,10 +114,10 @@ player_perf["efficiency_score"] = (
 )
 
 # --------------------------------------------------
-# FILTER PLAYER IF SELECTED
+# PLAYER FILTER
 # --------------------------------------------------
 if selected_player != "All Players":
-    player_perf = player_perf[player_perf["batter"] == selected_player]
+    player_perf = player_perf[player_perf["batsman"] == selected_player]
 
 # --------------------------------------------------
 # KPI METRICS
@@ -101,7 +126,7 @@ st.subheader("📌 Key Performance Indicators")
 
 col1, col2, col3, col4 = st.columns(4)
 
-col1.metric("🏏 Avg Runs", round(player_perf["total_runs"].mean(), 2))
+col1.metric("🏏 Avg Runs", int(player_perf["total_runs"].mean()))
 col2.metric("⚡ Avg Strike Rate", round(player_perf["strike_rate"].mean(), 2))
 col3.metric("🎯 Total Wickets", int(player_perf["wickets"].sum()))
 col4.metric("🔥 Avg Efficiency", round(player_perf["efficiency_score"].mean(), 2))
@@ -116,17 +141,18 @@ tab1, tab2, tab3, tab4 = st.tabs(
 )
 
 # --------------------------------------------------
-# TAB 1: OVERVIEW
+# TAB 1 – OVERVIEW
 # --------------------------------------------------
 with tab1:
-    st.subheader("Top 10 Players (Overall Performance)")
+    st.subheader("Top 10 Players by Efficiency")
+
     top10 = player_perf.sort_values(
         "efficiency_score", ascending=False
     ).head(10)
 
     st.dataframe(
         top10[[
-            "batter",
+            "batsman",
             "total_runs",
             "strike_rate",
             "wickets",
@@ -136,32 +162,30 @@ with tab1:
     )
 
     st.bar_chart(
-        top10.set_index("batter")["efficiency_score"]
+        top10.set_index("batsman")["efficiency_score"]
     )
 
 # --------------------------------------------------
-# TAB 2: BATTING
+# TAB 2 – BATTING
 # --------------------------------------------------
 with tab2:
-    st.subheader("Batting Analysis")
+    st.subheader("Batting Impact Analysis")
 
     st.scatter_chart(
-        batting[["total_runs", "strike_rate"]]
+        batting_df[["total_runs", "strike_rate"]]
     )
 
-    st.markdown("""
-    **Insight:**  
-    Players with a balance of high strike rate and consistent runs
-    are more valuable in T20 cricket.
-    """)
+    st.markdown(
+        "✔ Players with high strike rate and consistent runs dominate T20 cricket."
+    )
 
 # --------------------------------------------------
-# TAB 3: BOWLING
+# TAB 3 – BOWLING
 # --------------------------------------------------
 with tab3:
-    st.subheader("Bowling Analysis")
+    st.subheader("Top Wicket Takers")
 
-    top_bowlers = bowling.sort_values(
+    top_bowlers = bowling_df.sort_values(
         "wickets", ascending=False
     ).head(10)
 
@@ -169,30 +193,26 @@ with tab3:
         top_bowlers.set_index("bowler")["wickets"]
     )
 
-    st.markdown("""
-    **Insight:**  
-    Wicket-taking bowlers significantly influence match outcomes,
-    especially during powerplay and death overs.
-    """)
+    st.markdown(
+        "✔ Wicket-taking bowlers heavily influence match outcomes."
+    )
 
 # --------------------------------------------------
-# TAB 4: EFFICIENCY
+# TAB 4 – EFFICIENCY
 # --------------------------------------------------
 with tab4:
-    st.subheader("Player Efficiency Evaluation")
+    st.subheader("Efficiency Distribution")
 
     st.line_chart(
         player_perf.sort_values("efficiency_score")
-        .set_index("batter")["efficiency_score"]
+        .set_index("batsman")["efficiency_score"]
     )
 
     st.markdown("""
-    **Efficiency Score considers:**
-    - Batting impact
-    - Scoring speed
-    - Bowling contribution  
-
-    This provides a **holistic performance evaluation**.
+    **Efficiency Score Components**
+    - Batting contribution
+    - Strike rate (scoring speed)
+    - Bowling impact  
     """)
 
 # --------------------------------------------------
@@ -202,15 +222,15 @@ st.divider()
 st.subheader("🧠 Final Insights")
 
 st.markdown("""
-- Not all high run-scorers are the most efficient players.
+- High run-scorers are not always the most efficient players.
 - All-rounders dominate efficiency rankings.
 - Strike rate is as important as total runs in T20 cricket.
-- Data-driven player evaluation improves team selection.
+- Data-driven evaluation improves team selection.
 """)
 
 # --------------------------------------------------
 # FOOTER
 # --------------------------------------------------
 st.caption(
-    "🏏 IPL Player Performance Analysis | Built with Streamlit & Pandas | Big Data Analytics Project"
+    "🏏 IPL Player Performance Analysis | Streamlit | Pandas | Sports Analytics"
 )
