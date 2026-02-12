@@ -3,7 +3,7 @@ import pandas as pd
 import numpy as np
 
 # --------------------------------------------------
-# PAGE CONFIGURATION
+# PAGE CONFIG
 # --------------------------------------------------
 st.set_page_config(
     page_title="IPL Player Performance Analysis",
@@ -38,23 +38,37 @@ def load_data():
 matches_df, deliveries_df = load_data()
 
 # --------------------------------------------------
-# STANDARDIZE COLUMN NAMES (NO ERROR GUARANTEE)
+# NORMALIZE COLUMN NAMES (MOST IMPORTANT)
 # --------------------------------------------------
+matches_df.columns = matches_df.columns.str.lower()
 deliveries_df.columns = deliveries_df.columns.str.lower()
 
-# Ensure correct column names exist
+# batsman vs batter safety
 if "batter" in deliveries_df.columns:
     deliveries_df.rename(columns={"batter": "batsman"}, inplace=True)
+
+# match id safety
+if "match_id" not in deliveries_df.columns and "id" in deliveries_df.columns:
+    deliveries_df.rename(columns={"id": "match_id"}, inplace=True)
+
+# --------------------------------------------------
+# CREATE is_wicket COLUMN SAFELY (NO KEYERROR)
+# --------------------------------------------------
+if "is_wicket" not in deliveries_df.columns:
+    if "dismissal_kind" in deliveries_df.columns:
+        deliveries_df["is_wicket"] = deliveries_df["dismissal_kind"].notna().astype(int)
+    else:
+        deliveries_df["is_wicket"] = 0
 
 # --------------------------------------------------
 # SIDEBAR FILTERS
 # --------------------------------------------------
 st.sidebar.header("🎯 Filters")
 
-season_col = "season" if "season" in matches_df.columns else "Season"
+season_col = "season" if "season" in matches_df.columns else "year"
 match_id_col = "id" if "id" in matches_df.columns else "match_id"
 
-seasons = sorted(matches_df[season_col].unique())
+seasons = sorted(matches_df[season_col].dropna().unique())
 selected_season = st.sidebar.selectbox("Select Season", seasons)
 
 season_match_ids = matches_df[
@@ -72,7 +86,7 @@ selected_player = st.sidebar.selectbox(
 )
 
 # --------------------------------------------------
-# BATTING ANALYSIS
+# BATTING STATS
 # --------------------------------------------------
 batting_df = season_data.groupby("batsman").agg(
     total_runs=("batsman_runs", "sum"),
@@ -86,14 +100,15 @@ batting_df["strike_rate"] = (
 ) * 100
 
 # --------------------------------------------------
-# BOWLING ANALYSIS
+# BOWLING STATS (SAFE)
 # --------------------------------------------------
-bowling_df = season_data[
-    season_data["is_wicket"] == 1
-].groupby("bowler").size().reset_index(name="wickets")
+bowling_df = season_data[season_data["is_wicket"] == 1] \
+    .groupby("bowler") \
+    .size() \
+    .reset_index(name="wickets")
 
 # --------------------------------------------------
-# MERGE PLAYER PERFORMANCE
+# MERGE PERFORMANCE
 # --------------------------------------------------
 player_perf = batting_df.merge(
     bowling_df,
@@ -124,12 +139,12 @@ if selected_player != "All Players":
 # --------------------------------------------------
 st.subheader("📌 Key Performance Indicators")
 
-col1, col2, col3, col4 = st.columns(4)
+c1, c2, c3, c4 = st.columns(4)
 
-col1.metric("🏏 Avg Runs", int(player_perf["total_runs"].mean()))
-col2.metric("⚡ Avg Strike Rate", round(player_perf["strike_rate"].mean(), 2))
-col3.metric("🎯 Total Wickets", int(player_perf["wickets"].sum()))
-col4.metric("🔥 Avg Efficiency", round(player_perf["efficiency_score"].mean(), 2))
+c1.metric("🏏 Avg Runs", int(player_perf["total_runs"].mean()))
+c2.metric("⚡ Avg Strike Rate", round(player_perf["strike_rate"].mean(), 2))
+c3.metric("🎯 Total Wickets", int(player_perf["wickets"].sum()))
+c4.metric("🔥 Avg Efficiency", round(player_perf["efficiency_score"].mean(), 2))
 
 st.divider()
 
@@ -169,14 +184,14 @@ with tab1:
 # TAB 2 – BATTING
 # --------------------------------------------------
 with tab2:
-    st.subheader("Batting Impact Analysis")
+    st.subheader("Batting Impact")
 
     st.scatter_chart(
         batting_df[["total_runs", "strike_rate"]]
     )
 
     st.markdown(
-        "✔ Players with high strike rate and consistent runs dominate T20 cricket."
+        "✔ High strike-rate + consistency = T20 success."
     )
 
 # --------------------------------------------------
@@ -194,7 +209,7 @@ with tab3:
     )
 
     st.markdown(
-        "✔ Wicket-taking bowlers heavily influence match outcomes."
+        "✔ Wickets change the game momentum."
     )
 
 # --------------------------------------------------
@@ -209,10 +224,10 @@ with tab4:
     )
 
     st.markdown("""
-    **Efficiency Score Components**
-    - Batting contribution
-    - Strike rate (scoring speed)
-    - Bowling impact  
+    **Efficiency Score Includes**
+    - Batting impact  
+    - Scoring speed  
+    - Bowling contribution  
     """)
 
 # --------------------------------------------------
@@ -222,9 +237,9 @@ st.divider()
 st.subheader("🧠 Final Insights")
 
 st.markdown("""
-- High run-scorers are not always the most efficient players.
-- All-rounders dominate efficiency rankings.
-- Strike rate is as important as total runs in T20 cricket.
+- Top scorers are not always the most efficient.
+- All-rounders dominate modern T20 cricket.
+- Strike rate matters as much as total runs.
 - Data-driven evaluation improves team selection.
 """)
 
@@ -234,3 +249,4 @@ st.markdown("""
 st.caption(
     "🏏 IPL Player Performance Analysis | Streamlit | Pandas | Sports Analytics"
 )
+
